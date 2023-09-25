@@ -1,0 +1,5 @@
+*.out
+*.csv
+test*
+temp*
+__pycache__
