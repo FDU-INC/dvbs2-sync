@@ -4,9 +4,6 @@ import lib.dvbs2.physical as phy
 from lib.dvbs2.physical import PL_HEADER_LEN, PILOT_LEN, PILOT_SLOT_GAP, SLOT_LEN
 import params
 
-# rxParams = params.RxParams()
-# simParams = params.SimParams()
-
 # complex numpy.ndarray
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
@@ -168,11 +165,11 @@ class TimeFreqSynchronizer:
         self.PLScrambingIndex = 0
         assert self.sps % 2 == 0
 
-        self.bandwidth: float = 36e6
+        self.bandwidth: float = simParams.rolloff
         self.carrSyncLoopBW: float = rxParams.carrSyncLoopBW
         self.dataFrameSize: int = rxParams.xFecFrameSize
         self.frameSyncAveragingFrames: int = rxParams.frameSyncLock
-        self.rolloff: float = 0.35
+        self.rolloff: float = simParams.rolloff
         self.fsymb: float = self.bandwidth / (1 + self.rolloff)
         self.fsamp: float = self.fsymb * self.sps
         self.symbSyncLoopBW: float = rxParams.symbSyncLoopBW
@@ -295,7 +292,7 @@ class TimeFreqSynchronizer:
 
                 if not frameSyncStat:
                     # frame synchronization
-                    if symbolCount > 180: 
+                    if symbolCount > 180:
                         fBuffer = np.vstack((fBuffer, tSyncOut[n]))
                     else:
                         fBuffer[symbolCount - 1] = tSyncOut[n]
@@ -326,7 +323,9 @@ class TimeFreqSynchronizer:
                             syncInd = possSyncInd[0, index]
                 else:
                     # pIndices is 1 less than the MATLAB side
-                    pilotInd = np.argwhere(symbolCount == (pIndices + syncInd)).flatten()
+                    pilotInd = np.argwhere(
+                        symbolCount == (pIndices + syncInd)
+                    ).flatten()
                     idx = pilotInd % PILOT_LEN
                     if len(pilotInd) != 0 and idx >= 3:
                         freqError = np.imag(
@@ -388,12 +387,14 @@ class Synchronizer:
         while stIdx < len(rxIn):
             print("stIdx:", stIdx, ", len(rxIn):", len(rxIn))
             endIdx = stIdx + self.rxParams.plFrameSize * self.simParams.sps
-            isLastFrame = endIdx > len(rxIn);
+            isLastFrame = endIdx > len(rxIn)
             if isLastFrame:
-                endIdx = len(rxIn);
-            rxData = rxIn[stIdx: endIdx];
+                endIdx = len(rxIn)
+            rxData = rxIn[stIdx:endIdx]
 
-            coarseFreqLock = self.rxParams.frameCount >= self.rxParams.initialTimeFreqSync
+            coarseFreqLock = (
+                self.rxParams.frameCount >= self.rxParams.initialTimeFreqSync
+            )
 
             syncIn = rxData
             if isLastFrame:
@@ -402,26 +403,46 @@ class Synchronizer:
                 if resSampCnt >= 0:
                     syncIn = np.concatenate((rxData, np.zeros((resSampCnt, 1))))
                 else:
-                    syncIn = rxData[:resSymb * self.simParams.sps]
+                    syncIn = rxData[: resSymb * self.simParams.sps]
 
             coarseFreqSyncOut, syncIndex, _ = self.coarseSyncer(syncIn, coarseFreqLock)
             self.rxParams.syncIndex = syncIndex
             print("syncIndex:", syncIndex)
 
-            fineFreqIn = np.concatenate((self.rxParams.cfBuffer, coarseFreqSyncOut[:self.rxParams.syncIndex - 1])) if self.rxParams.cfBuffer.size else coarseFreqSyncOut[:self.rxParams.syncIndex - 1]
+            fineFreqIn = (
+                np.concatenate(
+                    (
+                        self.rxParams.cfBuffer,
+                        coarseFreqSyncOut[: self.rxParams.syncIndex - 1],
+                    )
+                )
+                if self.rxParams.cfBuffer.size
+                else coarseFreqSyncOut[: self.rxParams.syncIndex - 1]
+            )
             print("len(fineFreqIn):", len(fineFreqIn))
             if isLastFrame:
                 resCnt = resSymb - len(coarseFreqSyncOut)
                 if resCnt <= 0:
-                    fineFreqIn = np.concatenate((self.rxParams.cfBuffer, coarseFreqSyncOut[:resSymb]))
+                    fineFreqIn = np.concatenate(
+                        (self.rxParams.cfBuffer, coarseFreqSyncOut[:resSymb])
+                    )
                 else:
-                    fineFreqIn = np.concatenate((self.rxParams.cfBuffer, coarseFreqSyncOut, np.zeros((resCnt, 1), dtype=np.cdouble)))
+                    fineFreqIn = np.concatenate(
+                        (
+                            self.rxParams.cfBuffer,
+                            coarseFreqSyncOut,
+                            np.zeros((resCnt, 1), dtype=np.cdouble),
+                        )
+                    )
 
-            if (self.rxParams.frameCount > self.rxParams.initialTimeFreqSync + 1) and \
-            (self.rxParams.frameCount <= self.rxParams.totalSyncFrames + 1):
+            if (self.rxParams.frameCount > self.rxParams.initialTimeFreqSync + 1) and (
+                self.rxParams.frameCount <= self.rxParams.totalSyncFrames + 1
+            ):
                 self.rxParams.fineFreqCorrVal = fineFreqEst(
-                    fineFreqIn[self.rxParams.pilotInd], self.coarseSyncer.numPilots,
-                    self.coarseSyncer.pilotSeq, self.rxParams.fineFreqCorrVal
+                    fineFreqIn[self.rxParams.pilotInd],
+                    self.coarseSyncer.numPilots,
+                    self.coarseSyncer.pilotSeq,
+                    self.rxParams.fineFreqCorrVal,
                 )
 
             # fineFreqLock
@@ -429,13 +450,12 @@ class Synchronizer:
             if self.rxParams.frameCount > self.rxParams.totalSyncFrames:
                 syncOut = self.__fineFreq(fineFreqIn, isLastFrame)
 
-            self.rxParams.cfBuffer = coarseFreqSyncOut[self.rxParams.syncIndex - 1:]
+            self.rxParams.cfBuffer = coarseFreqSyncOut[self.rxParams.syncIndex - 1 :]
             self.rxParams.syncIndex = syncIndex
             self.rxParams.frameCount += 1
 
             stIdx = endIdx
             yield syncOut
-
 
     def __fineFreq(self, fineFreqIn: CNDarray, isLastFrame: bool) -> CNDarray:
         # Normalize the frequency estimate by the input symbol rate freqEst =
@@ -446,18 +466,25 @@ class Synchronizer:
         # Generate the symbol indices using frameCount and plFrameSize.
         # Subtract 2 from the rxParams.frameCount because the buffer used to
         # get one PL frame introduces a delay of one to the count.
-        ind = np.arange((self.rxParams.frameCount - 2) * self.rxParams.plFrameSize, (self.rxParams.frameCount - 1) * self.rxParams.plFrameSize)
+        ind = np.arange(
+            (self.rxParams.frameCount - 2) * self.rxParams.plFrameSize,
+            (self.rxParams.frameCount - 1) * self.rxParams.plFrameSize,
+        )
         phErr = np.exp(-1j * 2 * np.pi * freqEst * ind).reshape(-1, 1)
         fineFreqOut = fineFreqIn * phErr
 
         # Estimate the phase error estimation by using the HelperDVBS2PhaseEst
         # helper function.
         phEstRes, self.rxParams.prevPhaseEst = phaseEst(
-            fineFreqOut[self.rxParams.pilotInd], self.coarseSyncer.pilotSeq, self.rxParams.prevPhaseEst,
+            fineFreqOut[self.rxParams.pilotInd],
+            self.coarseSyncer.pilotSeq,
+            self.rxParams.prevPhaseEst,
         )
 
         if len(self.rxParams.pilotEst) != 0:
-            phEstRes = np.unwrap(np.vstack((self.rxParams.pilotEst, phEstRes)), axis=0)[len(phEstRes):]
+            phEstRes = np.unwrap(np.vstack((self.rxParams.pilotEst, phEstRes)), axis=0)[
+                len(phEstRes) :
+            ]
 
         # Compensate for the residual frequency and phase offset by using the
         # HelperDVBS2PhaseCompensate helper function. Use two frames for
@@ -468,7 +495,12 @@ class Synchronizer:
         # used for phase error estimate.
         syncOut = np.array([], dtype=np.cdouble)
         if self.rxParams.frameCount >= self.rxParams.totalSyncFrames + 3:
-            coarsePhaseCompOut = phaseCompensate(self.rxParams.ffBuffer, self.rxParams.pilotEst, self.rxParams.pilotInd, phEstRes[1])
+            coarsePhaseCompOut = phaseCompensate(
+                self.rxParams.ffBuffer,
+                self.rxParams.pilotEst,
+                self.rxParams.pilotInd,
+                phEstRes[1],
+            )
             syncOut = coarsePhaseCompOut
 
         self.rxParams.ffBuffer = fineFreqOut
@@ -477,15 +509,26 @@ class Synchronizer:
         if isLastFrame:
             pilotBlkFreq = PILOT_SLOT_GAP * SLOT_LEN + PILOT_LEN
             avgSlope = np.diff(phEstRes[1:]).mean()
-            chunkLen = self.rxParams.plFrameSize - self.rxParams.pilotInd[-1] + self.rxParams.pilotInd[PILOT_LEN - 1]
+            chunkLen = (
+                self.rxParams.plFrameSize
+                - self.rxParams.pilotInd[-1]
+                + self.rxParams.pilotInd[PILOT_LEN - 1]
+            )
             estEndPh = phEstRes[-1] + avgSlope * chunkLen / pilotBlkFreq
-            coarsePhaseCompOut1 = phaseCompensate(self.rxParams.ffBuffer, self.rxParams.pilotEst, self.rxParams.pilotInd, estEndPh)
+            coarsePhaseCompOut1 = phaseCompensate(
+                self.rxParams.ffBuffer,
+                self.rxParams.pilotEst,
+                self.rxParams.pilotInd,
+                estEndPh,
+            )
             syncOut = np.concatenate((syncOut, coarsePhaseCompOut1))
 
         return syncOut
 
 
-def fineFreqEst(rxPilots: CNDarray, numPilotBlks: int, refPilots: CNDarray, R: np.cdouble) -> np.cdouble:
+def fineFreqEst(
+    rxPilots: CNDarray, numPilotBlks: int, refPilots: CNDarray, R: np.cdouble
+) -> np.cdouble:
     Lp = PILOT_LEN
     # number of elements used to compute the auto correlation over each pilot block
     N = int(PILOT_LEN / 2)
@@ -494,7 +537,12 @@ def fineFreqEst(rxPilots: CNDarray, numPilotBlks: int, refPilots: CNDarray, R: n
     refBlock = refPilots.reshape(numPilotBlks, Lp).T
 
     for m in range(1, N + 1):
-        rm = pilotBlock[m:] * refBlock[m:].conj() * pilotBlock[:-m].conj() * refBlock[:-m] 
+        rm = (
+            pilotBlock[m:]
+            * refBlock[m:].conj()
+            * pilotBlock[:-m].conj()
+            * refBlock[:-m]
+        )
         R += rm.mean(axis=0).sum()
 
     return R
@@ -524,7 +572,9 @@ def phaseEst(rxPilots: CNDarray, refPilots: CNDarray, prevPhErrEst: float):
     return phErrEst, prevPhErrEst
 
 
-def phaseCompensate(rxData: CNDarray, phEst: np.ndarray, pilotInd: np.ndarray, arg4: float) -> CNDarray:
+def phaseCompensate(
+    rxData: CNDarray, phEst: np.ndarray, pilotInd: np.ndarray, arg4: float
+) -> CNDarray:
     syncOut = np.zeros((rxData.shape), dtype=np.cdouble)
     pilotBlkFreq = PILOT_LEN + SLOT_LEN * PILOT_SLOT_GAP
 
@@ -536,9 +586,14 @@ def phaseCompensate(rxData: CNDarray, phEst: np.ndarray, pilotInd: np.ndarray, a
     chunk1Len = chunkLLen + pilotInd[PILOT_LEN - 1] + 1
 
     # TODO: in matlab, (phEst[1] - phEst[0]) * np.arange is element-wise, be cautious
-    phData = phEst[0] + (phEst[1] - phEst[0]) * np.arange(chunkLLen + 1, chunk1Len + 1) / chunk1Len
+    phData = (
+        phEst[0]
+        + (phEst[1] - phEst[0]) * np.arange(chunkLLen + 1, chunk1Len + 1) / chunk1Len
+    )
     phData = phData.reshape(-1, 1)
-    syncOut[:pilotBlkFreq + PL_HEADER_LEN] = rxData[:pilotBlkFreq + PL_HEADER_LEN] * np.exp(-1j * phData)
+    syncOut[: pilotBlkFreq + PL_HEADER_LEN] = rxData[
+        : pilotBlkFreq + PL_HEADER_LEN
+    ] * np.exp(-1j * phData)
 
     endIdx = pilotInd[PILOT_LEN - 1]
     stIdx = endIdx + 1
@@ -550,13 +605,20 @@ def phaseCompensate(rxData: CNDarray, phEst: np.ndarray, pilotInd: np.ndarray, a
 
         # Interpolation of phase estimate on data using the phase estimates
         # computed on preceding and succeeding pilot blocks
-        phData = phEst[idx] + (phEst[idx + 1] - phEst[idx]) * np.arange(1, pilotBlkFreq + 1) / pilotBlkFreq
+        phData = (
+            phEst[idx]
+            + (phEst[idx + 1] - phEst[idx])
+            * np.arange(1, pilotBlkFreq + 1)
+            / pilotBlkFreq
+        )
         phData = phData.reshape(-1, 1)
-        syncOut[stIdx: endIdx + 1] = rxData[stIdx: endIdx + 1] * np.exp(-1j * phData[:])
+        syncOut[stIdx : endIdx + 1] = rxData[stIdx : endIdx + 1] * np.exp(
+            -1j * phData[:]
+        )
 
     phData = phEst[-1] + (arg4 - phEst[-1]) * np.arange(1, chunkLLen + 1) / chunk1Len
     phData = phData.reshape(-1, 1)
-    syncOut[pilotInd[-1] + 1:] = rxData[pilotInd[-1] + 1:] * np.exp(-1j * phData[:])
+    syncOut[pilotInd[-1] + 1 :] = rxData[pilotInd[-1] + 1 :] * np.exp(-1j * phData[:])
     return syncOut
 
 
@@ -572,12 +634,20 @@ if __name__ == "__main__":
     # stIdx = 0
     # endIdx = stIdx + rxParams.plFrameSize * simParams.sps
     # syncIn = signal[stIdx:endIdx]
-    syncIn = signal * np.exp(1j * 0.7)
+    # syncIn = signal * np.exp(1j * 1.7)
+    syncIn = signal * np.exp(1j * 1.7) * np.exp(1j * np.arange(len(signal)) * 0.11)
+    syncIn = S.awgn(syncIn, snr=15)
 
-    syncIn = syncIn.reshape((len(syncIn), 1))
+    syncIn = syncIn.reshape((len(syncIn), 1))[1:]
     import matplotlib.pyplot as plt
+
+    symbols = S.sqrt_cos_filter(
+        syncIn.flatten(), 36e6 / (1 + 0.35) * sps, 0, 36e6, 0.35
+    )[::sps]
+    plt.plot(symbols.real, symbols.imag, ".")
+    plt.show()
     for out in syncer(rxIn=syncIn):
         # print()
         print("frameCount:", syncer.rxParams.frameCount)
-        # plt.plot(out.real, out.imag, ".")
-        # plt.show()
+        plt.plot(out.real, out.imag, ".")
+        plt.show()

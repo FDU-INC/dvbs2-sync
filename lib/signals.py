@@ -71,14 +71,16 @@ class SqrtRaisedCosFilter:
 
         # len(self.__pulse) is 2 * half + 1
         half = int(len(self.__pulse) / 2)
-        self.__pulse = np.array([self.sqrt_raised_cos((i - half) / fsamp) for i in range(pulse_len)])
+        self.__pulse = np.array(
+            [self.sqrt_raised_cos((i - half) / fsamp) for i in range(pulse_len)]
+        )
 
     def filter(self, input: np.ndarray) -> np.ndarray:
         return np.convolve(input, self.__pulse, "same")
 
     def filter_matlab(self, input: np.ndarray) -> np.ndarray:
         signal = np.convolve(input, self.__pulse, "full")
-        return signal[:len(input)]
+        return signal[: len(input)]
 
     def pulse_shape(self, symbols: np.ndarray, fc: float):
         sps = int(self.fsamp / self.fsymb)
@@ -118,6 +120,7 @@ class SqrtRaisedCosFilterMat(SqrtRaisedCosFilter):
     """
     behaves the same as comm.RaisedCosineReceiveFilter in MATLAB
     """
+
     def __init__(
         self, fsymb: float, rolloff: float, fsamp: float, window_sz_in_symbols: int = 10
     ):
@@ -141,7 +144,7 @@ class SqrtRaisedCosFilterMat(SqrtRaisedCosFilter):
         unfiltered = np.concatenate((self.buffer, x), axis=-1)
         filtered = self.gain * np.convolve(unfiltered, self.__pulse, "full")
         buf_len = self.__pulse_len
-        res = filtered[buf_len: buf_len + len(x)]
+        res = filtered[buf_len : buf_len + len(x)]
         self.buffer = unfiltered[-buf_len:]
 
         return res
@@ -149,6 +152,7 @@ class SqrtRaisedCosFilterMat(SqrtRaisedCosFilter):
     @property
     def pulse(self):
         return self.__pulse
+
 
 def load_matlab(path: str, ratio=1.0):
     def rep(s):
@@ -249,6 +253,7 @@ def sinc_filter(
     )
 
     return fsymb / fsamp * np.convolve(sig_shifted, pulse, "same")
+
 
 def sinc_pulse_shape(
     symbols: np.ndarray,

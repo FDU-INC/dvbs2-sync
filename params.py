@@ -2,33 +2,46 @@ import numpy as np
 
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
+
 class CfgDVBS2:
     def __init__(self) -> None:
-        self.StreamFormat = "TS";
-        self.FECFrame = "normal";
-        self.MODCOD = 18;
-        self.DFL = 42960;
-        self.ScalingMethod = "Unit average power";
-        self.RolloffFactor = 0.35;
-        self.HasPilots = True;
+        self.StreamFormat = "TS"
+        self.FECFrame = "normal"
+        self.MODCOD = 18
+        self.DFL = 42960
+        self.ScalingMethod = "Unit average power"
+        self.RolloffFactor = 0.35
+        self.HasPilots = True
         self.SamplesPerSymbol = 4
+
 
 cfgDVBS2 = CfgDVBS2()
 
 
 class SimParams:
     def __init__(self) -> None:
-        self.sps = cfgDVBS2.SamplesPerSymbol;             # Samples per symbol
-        self.numFrames = 1;                              # Number of frames to be processed
-        self.chanBW = 36e6;                               # Channel bandwidth in Hertz
-        self.cfo = 3e6;                                   # Carrier frequency offset in Hertz
-        self.sco = 5;                                     # Sampling clock offset in parts
-                                                            # per million
-        self.phNoiseLevel = "Low";         # Phase noise level provided as
-                                                            # 'Low', 'Medium', or 'High'
-        self.EsNodB = 20;                                 # Energy per symbol to noise ratio
-                                                            # in decibels
+        self.sps = cfgDVBS2.SamplesPerSymbol
+        # Samples per symbol
+        self.numFrames = 1
+        # Number of frames to be processed
+        self.chanBW = 36e6
+        # Channel bandwidth in Hertz
+        self.cfo = 3e6
+        # Carrier frequency offset in Hertz
+        self.sco = 5
+        # Sampling clock offset in parts
+        self.rolloff = 0.35
+        # per million
+        self.phNoiseLevel = "Low"
+        # Phase noise level provided as
+        # 'Low', 'Medium', or 'High'
+        self.EsNodB = 20
+        # Energy per symbol to noise ratio
+        # in decibels
+
+
 simParams = SimParams()
+
 
 class RxParams:
     def __init__(self) -> None:
@@ -70,7 +83,7 @@ class RxParams:
         self.prevPhaseEst: float = 0.0
 
         # -  State variable to store auto correlation value usedin fine
-        # frequency error estimation 
+        # frequency error estimation
         self.fineFreqCorrVal = np.cdouble(0)
 
         # -  Frame start index
@@ -93,6 +106,8 @@ class RxParams:
         self.fineFreqLock = 6
         self.hasFinePhaseCompensation = False
         self.finePhaseSyncLoopBW = 3.5e-6
-        self.initialTimeFreqSync = self.symbSyncLock + self.frameSyncLock + self.coarseFreqLock
+        self.initialTimeFreqSync = (
+            self.symbSyncLock + self.frameSyncLock + self.coarseFreqLock
+        )
         self.totalSyncFrames = self.initialTimeFreqSync + self.fineFreqLock
         self.syncIndex = 1
