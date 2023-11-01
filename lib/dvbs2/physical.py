@@ -116,83 +116,27 @@ def find_header(symbols: np.ndarray) -> int:
 
 
 def find_header_v2(symbols: np.ndarray):
-    ref_plsc = 1j * np.array(
-        [
-            -1,
-            1,
-            1,
-            -1,
-            -1,
-            -1,
-            1,
-            -1,
-            -1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            -1,
-            -1,
-            -1,
-            -1,
-            1,
-            1,
-            -1,
-            1,
-            1,
-            -1,
-            1,
-            -1,
-            1,
-            -1,
-            1,
-            1,
-            -1,
-            -1,
-        ]
-    )
-    ref_sof = 1j * np.array(
-        [
-            1,
-            1,
-            1,
-            1,
-            -1,
-            -1,
-            -1,
-            -1,
-            1,
-            -1,
-            -1,
-            -1,
-            1,
-            -1,
-            -1,
-            1,
-            1,
-            -1,
-            1,
-            1,
-            -1,
-            1,
-            -1,
-            -1,
-            1,
-        ]
-    )
-    ref_plsc = ref_plsc.reshape(-1, 1)
-    ref_sof = ref_sof.reshape(-1, 1)
+    """
+    input should be column vectors
+    """
+    symbols = symbols.flatten()
+    ref_plsc = 1j*np.array([-1,1,1,-1,-1,-1,1,-1,-1,1,1,1,1,1,-1,-1,-1,-1,1,1,-1,1,1,-1,1,-1,1,-1,1,1,-1,-1])
+    ref_sof = 1j*np.array([1,1,1,1,-1,-1,-1,-1,1,-1,-1,-1,1,-1,-1,1,1,-1,1,1,-1,1,-1,-1,1])
+    ref_plsc_conj = ref_plsc.conj()[::-1]
+    ref_sof_conj = ref_sof.conj()[::-1]
+
     win_len = PL_HEADER_LEN
     n = len(symbols)
-    corr = np.zeros(n - win_len + 1, dtype=np.cdouble)
-    for k in range(n - win_len + 1):
-        buff = symbols[k : k + win_len]
-        diff = buff[:-1] * np.conjugate(buff[1:])
-        c_sof = (diff[:25] * np.conjugate(ref_sof)).sum()
-        c_plsc = (diff[26::2] * np.conjugate(ref_plsc)).sum()
-        corr[k] = np.abs(c_sof + c_plsc)
+    diffs = symbols[:-1] * symbols[1:].conj()
+    c_sofs = np.convolve(diffs[:n - win_len + 25], ref_sof_conj, "valid")
 
+    c_plsc1 = np.convolve(diffs[26::2], ref_plsc_conj, "valid")
+    c_plsc2 = np.convolve(diffs[27::2], ref_plsc_conj, "valid")
+    c_plscs = np.zeros(len(c_plsc1) + len(c_plsc2), dtype=np.cdouble)
+    c_plscs[0::2] = c_plsc1
+    c_plscs[1::2] = c_plsc2
+
+    corr = np.abs(c_sofs + c_plscs)
     max_val = np.max(corr)
     sync_id = np.where(corr / max_val > 0.75)[0][:2]
     return sync_id
