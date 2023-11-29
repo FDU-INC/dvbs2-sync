@@ -1,5 +1,12 @@
-from miso import *
+import numpy as np
+import matplotlib.pyplot as plt
+
+from miso import MISOChannel
+from miso import AlamoutiSender
+from miso import Receiver
+from miso import canonical_awgn
 from params import MisoParams
+import lib.signals as S
 
 if __name__ == "__main__":
     miso_params = MisoParams()
@@ -24,7 +31,7 @@ if __name__ == "__main__":
     fc = 300e6
     sig_pure *= np.exp(2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
 
-    receiver = Receiver(sps=miso_params.sps, bandwidth=miso_params.bandwidth, rolloff=miso_params.rolloff, dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
+    receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
     sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=50)
     sig_bb = sig * np.exp(-2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
     receiver.receive(sig, fc)

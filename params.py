@@ -6,13 +6,13 @@ CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
 class CfgDVBS2:
     def __init__(self) -> None:
-        self.StreamFormat = "TS";
-        self.FECFrame = "normal";
-        self.MODCOD = 18;
-        self.DFL = 42960;
-        self.ScalingMethod = "Unit average power";
-        self.RolloffFactor = 0.35;
-        self.HasPilots = True;
+        self.StreamFormat = "TS"
+        self.FECFrame = "normal"
+        self.MODCOD = 18
+        self.DFL = 42960
+        self.ScalingMethod = "Unit average power"
+        self.RolloffFactor = 0.35
+        self.HasPilots = True
         self.SamplesPerSymbol = 4
 
 cfgDVBS2 = CfgDVBS2()
@@ -20,15 +20,15 @@ cfgDVBS2 = CfgDVBS2()
 
 class SimParams:
     def __init__(self) -> None:
-        self.sps = cfgDVBS2.SamplesPerSymbol;             # Samples per symbol
-        self.numFrames = 1;                              # Number of frames to be processed
-        self.chanBW = 36e6;                               # Channel bandwidth in Hertz
-        self.cfo = 3e6;                                   # Carrier frequency offset in Hertz
-        self.sco = 5;                                     # Sampling clock offset in parts
+        self.sps = cfgDVBS2.SamplesPerSymbol             # Samples per symbol
+        self.numFrames = 1                              # Number of frames to be processed
+        self.chanBW = 36e6                               # Channel bandwidth in Hertz
+        self.cfo = 3e6                                   # Carrier frequency offset in Hertz
+        self.sco = 5                                     # Sampling clock offset in parts
                                                             # per million
-        self.phNoiseLevel = "Low";         # Phase noise level provided as
+        self.phNoiseLevel = "Low"         # Phase noise level provided as
                                                             # 'Low', 'Medium', or 'High'
-        self.EsNodB = 20;                                 # Energy per symbol to noise ratio
+        self.EsNodB = 20                                 # Energy per symbol to noise ratio
         self.isPSK = False
                                                             # in decibels
 simParams = SimParams()
