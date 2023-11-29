@@ -206,7 +206,7 @@ class TimeFreqSynchronizer:
         if self.dataFrameSize % (SLOT_LEN * PILOT_SLOT_GAP) == 0:
             numPilots -= 1
 
-        self.pilotIndices = self.getPilotIndices(numPilots)
+        self.pilotIndices = phy.get_pilot_indices(numPilots)
         self.numPilots = numPilots
 
         rn = phy.getScramblingSequence(self.PLScrambingIndex)
@@ -217,16 +217,6 @@ class TimeFreqSynchronizer:
         )
         self.pilotSeq = self.pilotSeq.reshape((len(self.pilotSeq), 1))
         self.fullFrameSize = self.dataFrameSize + PL_HEADER_LEN + numPilots * PILOT_LEN
-
-    @staticmethod
-    def getPilotIndices(numPilots: int):
-        # base = 1440 * np.arange(1, numPilots + 1) + 36 * np.arange(0, numPilots)
-        # base = base.reshape((numPilots, 1))
-        # base = base.repeat(36, axis=-1) + np.arange(0, 36)
-        # indices = base.flatten() + 90
-        # return indices
-        return phy.get_pilot_indices(numPilots)
-        
 
     def reset(self):
         self.isFirst = True

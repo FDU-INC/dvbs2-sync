@@ -1,5 +1,7 @@
 import numpy as np
 
+import lib.dvbs2.physical as phy
+
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
 class CfgDVBS2:
@@ -98,3 +100,15 @@ class RxParams:
         self.initialTimeFreqSync = self.symbSyncLock + self.frameSyncLock + self.coarseFreqLock
         self.totalSyncFrames = self.initialTimeFreqSync + self.fineFreqLock
         self.syncIndex = 1
+
+
+class MisoParams:
+    def __init__(self) -> None:
+        self.sps = 4
+        self.bandwidth = 200e3
+        self.rolloff = 0.35
+        self.fsymb = self.bandwidth / (1 + self.rolloff)
+        self.fsamp = self.fsymb * self.sps
+        self.xfec_len = 32400
+        self.n_pilots = 22
+        self.data_symb_len = self.xfec_len + phy.PL_HEADER_LEN + self.n_pilots * phy.PILOT_LEN

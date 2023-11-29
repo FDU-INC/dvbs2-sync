@@ -1,5 +1,6 @@
 import lib.signals as S
 import lib.dvbs2.physical as phy
+from params import MisoParams
 
 import logging
 import numpy as np
@@ -16,6 +17,8 @@ LOW_SNR = -15
 HIGH_SNR = 5
 OFFSET = 1
 
+
+# used by pure sender
 SPS = 4
 BANDWIDTH = 200e3
 ROLLOFF = 0.35
@@ -24,26 +27,26 @@ FSAMP = FSYMB * SPS
 INVALID_LEN = 5
 
 
-class PureSender:
+class PureSender(MisoParams):
     def __init__(self, dummy_path: str, data_path: str):
+        super().__init__()
         self.dummy = S.load_matlab(dummy_path)[INVALID_LEN*SPS:]
         self.dummy_len = len(self.dummy)
-        self.data = S.load_matlab(data_path)[INVALID_LEN*SPS:]
-        self.data_len = len(self.data)
-        self.sig_1 = np.zeros((2 * self.dummy_len + self.data_len), dtype=np.cdouble)
-        self.sig_2 = np.zeros((2 * self.dummy_len + self.data_len), dtype=np.cdouble)
+        self.data = S.load_matlab(data_path)[INVALID_LEN*SPS:][:self.data_symb_len * self.sps]
+        self.sig_1 = np.zeros((2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble)
+        self.sig_2 = np.zeros((2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble)
 
         self.sig_1[:self.dummy_len] = self.dummy
-        self.sig_1[-self.data_len:] = self.data
+        self.sig_1[-self.data_symb_len * self.sps:] = self.data
         self.sig_2[self.dummy_len: 2 * self.dummy_len] = self.dummy
-        self.sig_2[-self.data_len:] = self.data
+        self.sig_2[-self.data_symb_len * self.sps:] = self.data
 
 
 class AlamoutiSender(PureSender):
     def __init__(self, dummy_path: str, data_path: str, filter: S.SqrtRaisedCosFilter):
         super().__init__(dummy_path, data_path)
         self.filter = filter
-        self.sps = int(filter.fsamp / filter.fsymb)
+        assert self.sps == int(filter.fsamp / filter.fsymb)
         data_symb = self.filter.filter(self.data)[::self.sps]
         parity = len(data_symb) % 2
         if parity == 1:
@@ -57,7 +60,7 @@ class AlamoutiSender(PureSender):
             data_symb1 = data_symb1[:-1]
         sig_data_1 = self.filter.pulse_shape(data_symb1, 0.0)
 
-        self.sig_1[-self.data_len:] = sig_data_1
+        self.sig_1[-self.data_symb_len * self.sps:] = sig_data_1
 
         data_symb2 = np.zeros_like(data_symb, dtype=np.cdouble)
         data_symb2[0::2] = data_symb[1::2]
@@ -65,10 +68,10 @@ class AlamoutiSender(PureSender):
         if parity == 1:
             data_symb2 = data_symb2[:-1]
         sig_data_2 = self.filter.pulse_shape(data_symb2, 0.0)
-        self.sig_2[-self.data_len:] = sig_data_2
+        self.sig_2[-self.data_symb_len * self.sps:] = sig_data_2
 
 
-class MISOChannel:
+class MISOChannel():
     def __init__(self, amps: list[complex], offsets: list[int], freq_offs: list[float], dummy_len: int, fsamp: float) -> None:
         assert len(amps) == 2 and len(offsets) == 2 and len(freq_offs) == 2
         self.n_sig = 2
@@ -102,24 +105,26 @@ class MISOChannel:
         output = output[:sig_len]
         return output
 
-class Receiver:
+class Receiver(MisoParams):
     def __init__(self, sps: int, bandwidth: float, rolloff: float, dummy_path: str) -> None:
-        self.sps = sps
-        fsymb = bandwidth / (1 + rolloff)
-        self.fsymb = fsymb
-        self.fsamp = fsymb * sps
+        super().__init__()
         self.filter = S.SqrtRaisedCosFilter(
-            fsymb=fsymb,
+            fsymb=self.fsymb,
             fsamp=self.fsamp,
-            rolloff=rolloff,
+            rolloff=self.rolloff,
         )
+        self.__noise_sniffed: bool = False
         self.sig: Optional[CNDarray] = None
+        # TODO: software engineering
         self.dummy: CNDarray = S.load_matlab(dummy_path)
         self.dummy = self.filter.filter(self.dummy)[INVALID_LEN*self.sps:]
         self.dummy /= np.mean(np.abs(self.dummy[::self.sps]))
         self.dummy_len: int = len(self.dummy)
         self.dummy_symb_len: int = int(self.dummy_len / self.sps)
-        self.__noise_sniffed: bool = False
+
+        self.data = None
+        self.pilot_indices = None
+
         self.delta_t = 0
 
     def sniff_noise(self, noise_sig: CNDarray) -> None:
@@ -184,6 +189,22 @@ class Receiver:
             x = np.concatenate((x, [last_symb]))
 
         return x
+
+    def phase_track_alamouti(self):
+        if self.data is None:
+            return
+
+        if self.pilot_indices is None:
+            data_len = len(self.data)
+            n_pilots = int(np.floor(data_len / (phy.SLOT_LEN * phy.PILOT_SLOT_GAP)))
+            n_pilots -= int(np.floor(n_pilots * phy.PILOT_LEN / (phy.SLOT_LEN * phy.PILOT_SLOT_GAP) + 0.5))
+            self.pilot_indices = phy.get_pilot_indices(n_pilots)
+            self.n_pilots = n_pilots
+            self.pilots_ref = phy.get_pilot_seq(n_pilots, scramb_id=0)
+            self.pilots_ref = self.pilots_ref.reshape((n_pilots, int(phy.PILOT_LEN / 2), 2))
+
+        y_pilots = self.data[self.pilot_indices].reshape(self.pilots_ref.shape)
+        breakpoint()
 
     def __coarse_start(self) -> Optional[int]:
         """
@@ -256,7 +277,7 @@ class Receiver:
         print("(h1, h2):", h1, h2)
         print("(phase):", np.angle(h1), np.angle(h2))
 
-        data = sig_filtered[id + 2 * self.dummy_len::self.sps]
+        data = sig_filtered[id + 2 * self.dummy_len::self.sps][:self.data_symb_len]
         self.data = data * 1.0
 
         carrier = 2j * np.pi * np.arange(len(data)) / self.fsymb
@@ -271,20 +292,20 @@ class Receiver:
         use dummy frame symbols to calculate carrier frequency offset
         """
         # this must be real
-        p = dummy[5:-5]
-        omegas = np.zeros(3, dtype=float)
-        for i in range(1, 4):
-            diff = (p[i:] / p[:-i]).mean()
-            om = np.angle(diff) / i
-            omegas[i - 1] = om
-
-        omega = omegas.mean()
-        return omega * self.fsymb / 2 / np.pi
-        # angles = np.unwrap(np.angle(dummy[5:-5]).real)
-        # n_half = int(len(angles) / 2)
-        # diff = angles[n_half : 2 * n_half] - angles[:n_half]
-        # cfo = diff.mean() * self.fsymb / 2 / np.pi / n_half
-        # return cfo
+        # p = dummy[5:-5]
+        # omegas = np.zeros(3, dtype=float)
+        # for i in range(1, 4):
+        #     diff = (p[i:] / p[:-i]).mean()
+        #     om = np.angle(diff) / i
+        #     omegas[i - 1] = om
+        #
+        # omega = omegas.mean()
+        # return omega * self.fsymb / 2 / np.pi
+        angles = np.unwrap(np.angle(dummy[5:-5]).real)
+        n_half = int(len(angles) / 2)
+        diff = angles[n_half : 2 * n_half] - angles[:n_half]
+        cfo = diff.mean() * self.fsymb / 2 / np.pi / n_half
+        return cfo
 
 
 def canonical_awgn(pure: CNDarray, dummy_len: int, snr: float) -> CNDarray:
