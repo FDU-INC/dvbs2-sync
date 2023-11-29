@@ -93,7 +93,6 @@ def from_symbols_to_qpsk(pl: np.ndarray):
 
     return np.array(list(bits_string), dtype=np.int8)
 
-
 def from_symbols_to_qpsk_ffi(payload: np.ndarray):
     dirname = os.path.dirname(__file__)
     libdemod = ctypes.WinDLL(dirname + "/libdemod.dll")
@@ -110,7 +109,6 @@ def from_symbols_to_qpsk_ffi(payload: np.ndarray):
     imag = np.array(payload.imag)
     libdemod.demod_qpsk(real, imag, payload.shape[0], output)
     return output
-
 
 def from_symbols_to_8psk_ffi(payload: np.ndarray):
     dirname = os.path.dirname(__file__)

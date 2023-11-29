@@ -4,6 +4,9 @@ import lib.dvbs2.physical as phy
 from lib.dvbs2.physical import PL_HEADER_LEN, PILOT_LEN, PILOT_SLOT_GAP, SLOT_LEN
 import params
 
+# rxParams = params.RxParams()
+# simParams = params.SimParams()
+
 # complex numpy.ndarray
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
@@ -78,6 +81,7 @@ class SymbolSynchronizer:
     def __call__(self, x: CNDarray) -> CNDarray:
         if self.isFirst:
             self.__reset(len(x))
+
         y, overflowFlag = self.__symbolSyncCodegen(x)
         if overflowFlag:
             print("warning: SymbolSynchronizer: symbol dropping")
@@ -165,15 +169,16 @@ class TimeFreqSynchronizer:
         self.PLScrambingIndex = 0
         assert self.sps % 2 == 0
 
-        self.bandwidth: float = simParams.rolloff
+        self.bandwidth: float = 36e6
         self.carrSyncLoopBW: float = rxParams.carrSyncLoopBW
         self.dataFrameSize: int = rxParams.xFecFrameSize
         self.frameSyncAveragingFrames: int = rxParams.frameSyncLock
-        self.rolloff: float = simParams.rolloff
+        self.rolloff: float = 0.35
         self.fsymb: float = self.bandwidth / (1 + self.rolloff)
         self.fsamp: float = self.fsymb * self.sps
         self.symbSyncLoopBW: float = rxParams.symbSyncLoopBW
         self.symbSyncTransitFrames: int = rxParams.symbSyncLock
+        self.isPSK = simParams.isPSK
 
         self.frameCount = 1
 
@@ -201,7 +206,7 @@ class TimeFreqSynchronizer:
         if self.dataFrameSize % (SLOT_LEN * PILOT_SLOT_GAP) == 0:
             numPilots -= 1
 
-        self.pilotIndices = self.__getPilotIndices(numPilots)
+        self.pilotIndices = self.getPilotIndices(numPilots)
         self.numPilots = numPilots
 
         rn = phy.getScramblingSequence(self.PLScrambingIndex)
@@ -214,12 +219,14 @@ class TimeFreqSynchronizer:
         self.fullFrameSize = self.dataFrameSize + PL_HEADER_LEN + numPilots * PILOT_LEN
 
     @staticmethod
-    def __getPilotIndices(numPilots: int):
-        base = 1440 * np.arange(1, numPilots + 1) + 36 * np.arange(0, numPilots)
-        base = base.reshape((numPilots, 1))
-        base = base.repeat(36, axis=-1) + np.arange(0, 36)
-        indices = base.flatten() + 90
-        return indices
+    def getPilotIndices(numPilots: int):
+        # base = 1440 * np.arange(1, numPilots + 1) + 36 * np.arange(0, numPilots)
+        # base = base.reshape((numPilots, 1))
+        # base = base.repeat(36, axis=-1) + np.arange(0, 36)
+        # indices = base.flatten() + 90
+        # return indices
+        return phy.get_pilot_indices(numPilots)
+        
 
     def reset(self):
         self.isFirst = True
@@ -265,8 +272,9 @@ class TimeFreqSynchronizer:
         if freqLock:
             self.integratorGain = self.integratorGain / 10
 
-        output = np.zeros((int(input.shape[0] / sps) + 11, 1), dtype=input.dtype)
-        phaseCorrection = np.zeros((input.shape[0] + 11 * sps, 1), dtype=input.dtype)
+        output = np.zeros(
+            (int(input.shape[0] / sps) + self.numPilots, 1), dtype=input.dtype
+        )
 
         timeSyncStat = self.frameCount > self.symbSyncTransitFrames
         frameSyncStat = (
@@ -284,6 +292,8 @@ class TimeFreqSynchronizer:
             filtIn = input[winLen] * np.exp(1j * self.phase)
             filtOut = self.recFilter(filtIn)
             tSyncOut = self.symbolSync(filtOut)
+            # if self.isPSK:
+            #     tSyncOut = np.exp(1j * np.angle(tSyncOut))
 
             for n in range(len(tSyncOut)):
                 symbolCount += 1
@@ -335,6 +345,11 @@ class TimeFreqSynchronizer:
                             * self.pilotSeq[pilotInd - 3]
                         )
 
+                if symbolCount > len(output):
+                    print("frameCount", self.frameCount)
+                    temp = np.zeros((2 * len(output), 1), dtype=output.dtype)
+                    temp[: len(output)] = output
+                    output = temp
                 output[symbolCount - 1] = tSyncOut[n]
 
             loopFiltOut = freqError * self.integratorGain + loopFiltState
@@ -344,8 +359,6 @@ class TimeFreqSynchronizer:
                 integFiltState = DDSOut
                 DDSPreviousInp = loopFiltState / sps
                 self.phase[p] = self.digitalSynthesizerGain * DDSOut
-
-            phaseCorrection[winLen] = self.phase
 
             for n in range(len(tSyncOut)):
                 if not timeSyncStat:
@@ -357,7 +370,6 @@ class TimeFreqSynchronizer:
                     prevSample = output[pIndices[pilotInd] + syncInd - 1]
 
         output = output[:symbolCount]
-        phaseEst = -phaseCorrection[: winLen[-1]].real
         self.loopFilterState = loopFiltState
         self.integFilterState = integFiltState
         self.previousSample = prevSample
@@ -369,7 +381,7 @@ class TimeFreqSynchronizer:
         self.possibleSyncIndices = possSyncInd
         self.syncIndex = syncInd
 
-        return output, syncInd, phaseEst
+        return output, syncInd
 
 
 class Synchronizer:
@@ -379,6 +391,7 @@ class Synchronizer:
         self.rxParams = rxParams
         self.coarseSyncer = TimeFreqSynchronizer(simParams, rxParams)
         self.rxParams.pilotInd = self.coarseSyncer.pilotIndices
+        self.symSyncOutLen = np.zeros((rxParams.initialTimeFreqSync, 1))
 
     def __call__(self, rxIn: CNDarray):
         stIdx: int = 0
@@ -405,7 +418,20 @@ class Synchronizer:
                 else:
                     syncIn = rxData[: resSymb * self.simParams.sps]
 
-            coarseFreqSyncOut, syncIndex, _ = self.coarseSyncer(syncIn, coarseFreqLock)
+            coarseFreqSyncOut, syncIndex = self.coarseSyncer(syncIn, coarseFreqLock)
+            if self.rxParams.frameCount <= self.rxParams.initialTimeFreqSync:
+                print("len(coarseFreqSyncOut):", len(coarseFreqSyncOut))
+                self.symSyncOutLen[self.rxParams.frameCount - 1] = len(
+                    coarseFreqSyncOut
+                )
+                diff = np.diff(self.symSyncOutLen[: self.rxParams.frameCount], axis=0)
+                if np.any(np.abs(diff) > 5):
+                    error_msg = (
+                        "Symbol timing synchronization failed. The loop will not converge. No frame will be recovered. "
+                        "Update the symbSyncLoopBW parameter according to the EsNo setting for proper loop convergence."
+                    )
+                    raise ValueError(error_msg)
+
             self.rxParams.syncIndex = syncIndex
             print("syncIndex:", syncIndex)
 
@@ -461,6 +487,7 @@ class Synchronizer:
         # Normalize the frequency estimate by the input symbol rate freqEst =
         # angle(R)/(pi*(N+1)), where N (18) is the number of elements used to
         # compute the mean of auto correlation (R) in HelperDVBS2FineFreqEst.
+        # 19 / 2 comes from (1 + 18) / 2
         freqEst = np.angle(self.rxParams.fineFreqCorrVal) / (np.pi * 19)
 
         # Generate the symbol indices using frameCount and plFrameSize.
@@ -529,6 +556,10 @@ class Synchronizer:
 def fineFreqEst(
     rxPilots: CNDarray, numPilotBlks: int, refPilots: CNDarray, R: np.cdouble
 ) -> np.cdouble:
+    """
+    R is added with
+    $sum_{m=1}^{18} e^{j omega m}$
+    """
     Lp = PILOT_LEN
     # number of elements used to compute the auto correlation over each pilot block
     N = int(PILOT_LEN / 2)
@@ -623,31 +654,25 @@ def phaseCompensate(
 
 
 if __name__ == "__main__":
-    signal = S.load_matlab("./data/scrambleDvbs2x2pkts.csv")
+    signal = S.load_matlab("./data/scrambleDvbs2x2pktsQPSK.csv")
+    print(len(signal))
     signal = np.tile(signal, 26)
     simParams = params.SimParams()
     sps = 4
     simParams.sps = sps
-    rxParams = params.RxParams()
+    rxParams = params.RxParams(xFecFrameSize=32400)
     syncer = Synchronizer(simParams, rxParams)
 
     # stIdx = 0
     # endIdx = stIdx + rxParams.plFrameSize * simParams.sps
     # syncIn = signal[stIdx:endIdx]
-    # syncIn = signal * np.exp(1j * 1.7)
-    syncIn = signal * np.exp(1j * 1.7) * np.exp(1j * np.arange(len(signal)) * 0.11)
-    syncIn = S.awgn(syncIn, snr=15)
+    syncIn = signal * np.exp(1j * np.pi * np.arange(len(signal)) * 0.11)
 
-    syncIn = syncIn.reshape((len(syncIn), 1))[1:]
+    syncIn = syncIn.reshape((len(syncIn), 1))
     import matplotlib.pyplot as plt
 
-    symbols = S.sqrt_cos_filter(
-        syncIn.flatten(), 36e6 / (1 + 0.35) * sps, 0, 36e6, 0.35
-    )[::sps]
-    plt.plot(symbols.real, symbols.imag, ".")
-    plt.show()
     for out in syncer(rxIn=syncIn):
-        # print()
+        print()
         print("frameCount:", syncer.rxParams.frameCount)
         plt.plot(out.real, out.imag, ".")
         plt.show()

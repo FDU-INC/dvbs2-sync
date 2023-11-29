@@ -1,5 +1,6 @@
 import numpy as np
 
+CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
 class SqrtRaisedCos:
     def __init__(self, fsymb: float, rolloff: float):
@@ -71,25 +72,22 @@ class SqrtRaisedCosFilter:
 
         # len(self.__pulse) is 2 * half + 1
         half = int(len(self.__pulse) / 2)
-        self.__pulse = np.array(
-            [self.sqrt_raised_cos((i - half) / fsamp) for i in range(pulse_len)]
-        )
+        self.__pulse = np.array([self.sqrt_raised_cos((i - half) / fsamp) for i in range(pulse_len)])
+        self.__pulse /= np.linalg.norm(self.__pulse, 2)
 
-    def filter(self, input: np.ndarray) -> np.ndarray:
+    def filter(self, input: np.ndarray) -> CNDarray:
         return np.convolve(input, self.__pulse, "same")
 
     def filter_matlab(self, input: np.ndarray) -> np.ndarray:
         signal = np.convolve(input, self.__pulse, "full")
-        return signal[: len(input)]
+        return signal[:len(input)]
 
     def pulse_shape(self, symbols: np.ndarray, fc: float):
         sps = int(self.fsamp / self.fsymb)
         signal = np.zeros(len(symbols) * sps, dtype=np.cdouble)
         signal[::sps] = symbols
-        signal = np.convolve(signal, self.__pulse, "full")
+        signal = np.convolve(signal, self.__pulse, "same")
 
-        start = int((self.__pulse_len - sps) / 2)
-        signal = signal[start : (start + len(symbols) * sps)]
         sig_shifted = np.multiply(
             signal, np.exp(2j * np.pi * fc / self.fsamp * np.arange(len(signal)))
         )
@@ -120,7 +118,6 @@ class SqrtRaisedCosFilterMat(SqrtRaisedCosFilter):
     """
     behaves the same as comm.RaisedCosineReceiveFilter in MATLAB
     """
-
     def __init__(
         self, fsymb: float, rolloff: float, fsamp: float, window_sz_in_symbols: int = 10
     ):
@@ -144,7 +141,7 @@ class SqrtRaisedCosFilterMat(SqrtRaisedCosFilter):
         unfiltered = np.concatenate((self.buffer, x), axis=-1)
         filtered = self.gain * np.convolve(unfiltered, self.__pulse, "full")
         buf_len = self.__pulse_len
-        res = filtered[buf_len : buf_len + len(x)]
+        res = filtered[buf_len: buf_len + len(x)]
         self.buffer = unfiltered[-buf_len:]
 
         return res
@@ -152,7 +149,6 @@ class SqrtRaisedCosFilterMat(SqrtRaisedCosFilter):
     @property
     def pulse(self):
         return self.__pulse
-
 
 def load_matlab(path: str, ratio=1.0):
     def rep(s):
@@ -193,7 +189,7 @@ def addNoise(rawS: np.ndarray, noise=0.0, random_seed=1):
     return rawS + n, snr
 
 
-def awgn(pure: np.ndarray, snr: float | None, random_seed=1):
+def awgn(pure: np.ndarray, snr: float | None, random_seed=None) -> CNDarray:
     if snr is None:
         return pure
 
@@ -202,7 +198,10 @@ def awgn(pure: np.ndarray, snr: float | None, random_seed=1):
     sig_p_sqrt = np.sqrt(np.mean(np.abs(pure) ** 2))
     noise_scale = sig_p_sqrt / (10 ** (snr / 20)) / np.sqrt(2)
 
-    rng = np.random.RandomState(random_seed)
+    rng = np.random
+    if random_seed is not None:
+        rng = np.random.RandomState(random_seed)
+
     n = rng.normal(size=(sz), scale=1.0) + 1j * rng.normal(
         size=(sz),
         scale=1.0,
@@ -210,6 +209,16 @@ def awgn(pure: np.ndarray, snr: float | None, random_seed=1):
     n = n * noise_scale
 
     return pure + n
+
+def awgn_scale(pure: np.ndarray, snr: float | None) -> CNDarray:
+    if snr is None:
+        return pure
+
+    # sig_p_sqrt = np.linalg.norm(pure) / np.sqrt(sz)
+    sig_p_sqrt = np.sqrt(np.mean(np.abs(pure) ** 2))
+    noise_scale = sig_p_sqrt / (10 ** (snr / 20)) / np.sqrt(2)
+
+    return noise_scale
 
 
 def sinc_filter(
@@ -253,7 +262,6 @@ def sinc_filter(
     )
 
     return fsymb / fsamp * np.convolve(sig_shifted, pulse, "same")
-
 
 def sinc_pulse_shape(
     symbols: np.ndarray,

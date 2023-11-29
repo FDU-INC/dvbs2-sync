@@ -27,7 +27,7 @@ def sample(
       signal
     - `nBands`: Number of bands L. The cognitive radio system divides the
       shared spectrum into L orthogonal channels, so the bandwidth of each
-      channel is B = W/L. The sampling interval for each band is `nBands` times
+      channel is B = W/L. The sampling interval for each band is `nBands` times 
       input discrete signal sampling interval
     - `nChannels`: number of parallel channels for sampling
     - `offsets`: offsets of each sampling channel, integers
