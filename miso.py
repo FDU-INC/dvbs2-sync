@@ -11,13 +11,6 @@ CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
 N_MC = 10
 
-LOW_AMP = -1
-HIGH_AMP = 1
-LOW_SNR = -15
-HIGH_SNR = 5
-OFFSET = 1
-
-
 # used by pure sender
 INVALID_LEN = 5
 
@@ -25,9 +18,9 @@ INVALID_LEN = 5
 class PureSender(MisoParams):
     def __init__(self, dummy_path: str, data_path: str):
         super().__init__()
-        self.dummy = S.load_matlab(dummy_path)[INVALID_LEN*miso_params.sps:]
+        self.dummy = S.load_matlab(dummy_path)[INVALID_LEN*self.sps:]
         self.dummy_len = len(self.dummy)
-        self.data = S.load_matlab(data_path)[INVALID_LEN*miso_params.sps:][:self.data_symb_len * self.sps]
+        self.data = S.load_matlab(data_path)[INVALID_LEN*self.sps:][:self.data_symb_len * self.sps]
         self.sig_1 = np.zeros((2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble)
         self.sig_2 = np.zeros((2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble)
 
@@ -110,7 +103,6 @@ class Receiver(MisoParams):
         )
         self.__noise_sniffed: bool = False
         self.sig: Optional[CNDarray] = None
-        # TODO: software engineering
         self.dummy: CNDarray = S.load_matlab(dummy_path)
         self.dummy = self.filter.filter(self.dummy)[INVALID_LEN*self.sps:]
         self.dummy /= np.mean(np.abs(self.dummy[::self.sps]))
@@ -119,6 +111,7 @@ class Receiver(MisoParams):
 
         self.data = None
         self.pilot_indices = None
+        self.phase_error = None
 
         self.delta_t = 0
 
@@ -154,23 +147,19 @@ class Receiver(MisoParams):
 
         parity = len(self.data) % 2
         y = self.data * 1.0
-        h1 = self.h1t * 1.0
-        h2 = self.h2t * 1.0
         if parity == 1:
             # the last symbol is special
             y = y[:-1]
-            h1 = h1[:-1]
-            h2 = h2[:-1]
+
+        n_pairs = int(len(y) / 2)
+        self.phase_track_alamouti()
+        H = self.__build_h()
+        if H is None:
+            return None
+        self.H = H
 
         y[1::2] = y[1::2].conj()
-        n_pairs = int(len(y) / 2)
         y = y.reshape((n_pairs, 2, 1))
-        H = np.zeros((n_pairs, 2, 2), dtype=np.cdouble)
-        H[:, 0, 0] = h1[::2]
-        H[:, 0, 1] = h2[::2]
-        H[:, 1, 0] = h2[1::2].conj()
-        H[:, 1, 1] = -h1[1::2].conj()
-        self.H = H
         try:
             H_inv = np.linalg.inv(H)
         except np.linalg.LinAlgError:
@@ -185,21 +174,65 @@ class Receiver(MisoParams):
 
         return x
 
+    def __build_h(self) -> Optional[CNDarray]:
+        if self.data is None:
+            return None
+
+        parity = len(self.data) % 2
+        h1 = self.h1t * 1.0
+        h2 = self.h2t * 1.0
+        if parity == 1:
+            # the last symbol is special
+            h1 = h1[:-1]
+            h2 = h2[:-1]
+
+        if self.phase_error is not None:
+            step = phy.PILOT_SLOT_GAP * phy.SLOT_LEN + phy.PILOT_LEN
+            data_len = len(h1)
+
+            for i in range(data_len // step):
+                pos = phy.PL_HEADER_LEN + i * step
+                h1[pos: pos + step] *= self.phase_error[i, 0]
+                h2[pos: pos + step] *= self.phase_error[i, 1]
+
+        n_pairs = int(len(h1) / 2)
+        H = np.zeros((n_pairs, 2, 2), dtype=np.cdouble)
+        H[:, 0, 0] = h1[::2]
+        H[:, 0, 1] = h2[::2]
+        H[:, 1, 0] = h2[1::2].conj()
+        H[:, 1, 1] = -h1[1::2].conj()
+        return H
+
     def phase_track_alamouti(self):
         if self.data is None:
             return
 
         if self.pilot_indices is None:
-            data_len = len(self.data)
-            n_pilots = int(np.floor(data_len / (phy.SLOT_LEN * phy.PILOT_SLOT_GAP)))
-            n_pilots -= int(np.floor(n_pilots * phy.PILOT_LEN / (phy.SLOT_LEN * phy.PILOT_SLOT_GAP) + 0.5))
+            n_pilots = self.n_pilots
             self.pilot_indices = phy.get_pilot_indices(n_pilots)
-            self.n_pilots = n_pilots
             self.pilots_ref = phy.get_pilot_seq(n_pilots, scramb_id=0)
             self.pilots_ref = self.pilots_ref.reshape((n_pilots, int(phy.PILOT_LEN / 2), 2))
 
-        y_pilots = self.data[self.pilot_indices].reshape(self.pilots_ref.shape)
-        breakpoint()
+        y_pilots: CNDarray = self.data[self.pilot_indices].reshape(self.pilots_ref.shape)
+        y_pilots = y_pilots[..., np.newaxis]
+
+        h1_pilots: CNDarray = self.h1t[self.pilot_indices].reshape(self.pilots_ref.shape)
+        h2_pilots: CNDarray = self.h2t[self.pilot_indices].reshape(self.pilots_ref.shape)
+
+        H_pilots = np.zeros((*self.pilots_ref.shape, 2), dtype=np.cdouble)
+        H_pilots[..., 0, 0] = self.pilots_ref[..., 0] * h1_pilots[..., 0]
+        H_pilots[..., 1, 0] = -self.pilots_ref[..., 1].conj() * h1_pilots[..., 1]
+        H_pilots[..., 0, 1] = self.pilots_ref[..., 1] * h2_pilots[..., 0]
+        H_pilots[..., 1, 1] = self.pilots_ref[..., 0].conj() * h2_pilots[..., 1]
+
+        try:
+            H_inv = np.linalg.inv(H_pilots)
+        except np.linalg.LinAlgError:
+            logging.warning("singular matrix H_pilots")
+            self.phase_error = None
+            return
+        self.phase_error = np.matmul(H_inv, y_pilots)
+        self.phase_error = np.mean(self.phase_error, axis=1).squeeze()
 
     def __coarse_start(self) -> Optional[int]:
         """
@@ -258,8 +291,6 @@ class Receiver(MisoParams):
 
         cfo1 = self.__cfo(dummy1)
         cfo2 = self.__cfo(dummy2)
-        # cfo1 = 0.011 * BANDWIDTH
-        # cfo2 = 0.011 * BANDWIDTH
         print("cfo:", cfo1, cfo2)
 
         dummy1 *= np.exp(-2j * np.pi * np.arange(len(dummy1)) * cfo1 / self.fsymb)
@@ -267,8 +298,6 @@ class Receiver(MisoParams):
 
         h1 = (dummy1[5:-5]).mean()
         h2 = (dummy2[5:-5]).mean()
-        # h1 = np.exp(-0.7j)
-        # h2 = 1
         print("(h1, h2):", h1, h2)
         print("(phase):", np.angle(h1), np.angle(h2))
 
@@ -287,19 +316,16 @@ class Receiver(MisoParams):
         use dummy frame symbols to calculate carrier frequency offset
         """
         # this must be real
-        # p = dummy[5:-5]
-        # omegas = np.zeros(3, dtype=float)
-        # for i in range(1, 4):
-        #     diff = (p[i:] / p[:-i]).mean()
-        #     om = np.angle(diff) / i
-        #     omegas[i - 1] = om
-        #
-        # omega = omegas.mean()
-        # return omega * self.fsymb / 2 / np.pi
         angles = np.unwrap(np.angle(dummy[5:-5]).real)
-        n_half = int(len(angles) / 2)
-        diff = angles[n_half : 2 * n_half] - angles[:n_half]
-        cfo = diff.mean() * self.fsymb / 2 / np.pi / n_half
+        angles = np.convolve(angles, np.ones(10) / 10, "valid")
+
+        d = 150
+        diff = (angles[d:] - angles[:-d]) / d
+        diff_mean = diff.mean()
+        diff_std = diff.std()
+        normal_indices = np.argwhere(np.abs(diff - diff_mean) < 3 * diff_std)
+        normal_indices = normal_indices[:, 0].flatten()
+        cfo = diff[normal_indices].mean() * self.fsymb / 2 / np.pi
         return cfo
 
 
@@ -331,7 +357,6 @@ if __name__ == "__main__":
     )
 
     ps = PureSender("./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv")
-    ala_sender = AlamoutiSender("./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv", filter)
     channel = MISOChannel(
         amps = [np.exp(-0.7j), 1],
         # amps = [1, 1],
@@ -356,6 +381,9 @@ if __name__ == "__main__":
             sig = canonical_awgn(sig_pure, ps.dummy_len, snr=100)
             receiver.receive(sig, fc)
             data = receiver.data
+            if data is None:
+                continue
+
             h = data / filter.filter(ps.sig_1[2 * ps.dummy_len:])[::miso_params.sps]
 
             # data_ideal = data / h

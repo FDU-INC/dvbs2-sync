@@ -18,21 +18,22 @@ if __name__ == "__main__":
 
     ala_sender = AlamoutiSender("./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv", filter)
     channel = MISOChannel(
-        # amps = [np.exp(-0.7j), 1],
-        amps = [1, 1],
+        amps = [np.exp(-0.7j), 1],
+        # amps = [1, 1],
         offsets = [0, 0],
-        # freq_offs = [0.011 * BANDWIDTH, 0.019 * BANDWIDTH],
-        freq_offs = [0, 0],
+        freq_offs = [0.011 * miso_params.bandwidth, 0.019 * miso_params.bandwidth],
+        # freq_offs = [0, 0],
         dummy_len=ala_sender.dummy_len,
         fsamp=miso_params.fsamp
     )
 
     sig_pure = channel.combine([ala_sender.sig_1, ala_sender.sig_2], True)
-    fc = 300e6
+    # fc = 300e6
+    fc = 0
     sig_pure *= np.exp(2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
 
     receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
-    sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=50)
+    sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=0)
     sig_bb = sig * np.exp(-2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
     receiver.receive(sig, fc)
     data_est = receiver.compensate_alamouti()
