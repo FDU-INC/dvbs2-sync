@@ -5,7 +5,7 @@ from params import MisoParams
 import logging
 import numpy as np
 from typing import Optional
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
@@ -190,10 +190,14 @@ class Receiver(MisoParams):
             step = phy.PILOT_SLOT_GAP * phy.SLOT_LEN + phy.PILOT_LEN
             data_len = len(h1)
 
+            pos = phy.PL_HEADER_LEN
             for i in range(data_len // step):
-                pos = phy.PL_HEADER_LEN + i * step
                 h1[pos: pos + step] *= self.phase_error[i, 0]
                 h2[pos: pos + step] *= self.phase_error[i, 1]
+                pos += step
+
+            h1[pos: pos + step] *= self.phase_error[-1, 0]
+            h2[pos: pos + step] *= self.phase_error[-1, 1]
 
         n_pairs = int(len(h1) / 2)
         H = np.zeros((n_pairs, 2, 2), dtype=np.cdouble)
@@ -323,7 +327,7 @@ class Receiver(MisoParams):
         diff = (angles[d:] - angles[:-d]) / d
         diff_mean = diff.mean()
         diff_std = diff.std()
-        normal_indices = np.argwhere(np.abs(diff - diff_mean) < 3 * diff_std)
+        normal_indices = np.argwhere(np.abs(diff - diff_mean) < 2 * diff_std)
         normal_indices = normal_indices[:, 0].flatten()
         cfo = diff[normal_indices].mean() * self.fsymb / 2 / np.pi
         return cfo
