@@ -10,7 +10,6 @@ from typing import Optional
 
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 
-N_MC = 10
 
 # used by pure sender
 INVALID_LEN = 5
@@ -75,8 +74,9 @@ class MISOChannel:
         dummy_len: int,
         fsamp: float,
     ) -> None:
-        assert len(amps) == 2 and len(offsets) == 2 and len(freq_offs) == 2
-        self.n_sig = 2
+        # assert len(amps) == 2 and len(offsets) == 2 and len(freq_offs) == 2
+        assert len(amps) == len(offsets) and len(amps) == len(freq_offs)
+        self.n_sig = len(amps)
         self.amps = amps
         self.offsets = np.array(offsets, dtype=int)
         self.offsets = self.offsets - self.offsets.min()
@@ -94,23 +94,13 @@ class MISOChannel:
         max_off = self._max_off
         output = np.zeros((sig_len + max_off), dtype=np.cdouble)
 
-        out1 = self.amps[0] * sig[0]
-        if is_freq_off:
-            out1 *= np.exp(
-                2j * np.pi * np.arange(sig_len) * self.freq_offs[0] / self.fsamp
-            )
-        output[self.offsets[0] : self.offsets[0] + sig_len] += out1
-
-        out2 = self.amps[1] * sig[1]
-        if is_freq_off:
-            out2[self.dummy_len :] *= np.exp(
-                2j
-                * np.pi
-                * np.arange(sig_len - self.dummy_len)
-                * self.freq_offs[1]
-                / self.fsamp
-            )
-        output[self.offsets[1] : self.offsets[1] + sig_len] += out2
+        for i in range(self.n_sig):
+            out = self.amps[i] * sig[i]
+            if is_freq_off:
+                out *= np.exp(
+                    2j * np.pi * np.arange(sig_len) * self.freq_offs[i] / self.fsamp
+                )
+            output[self.offsets[i] : self.offsets[i] + sig_len] += out
 
         output = output[:sig_len]
         return output
@@ -393,60 +383,3 @@ def canonical_awgn(pure: CNDarray, dummy_len: int, snr: float) -> CNDarray:
 
 def to_digits(x: CNDarray):
     return 2 * (x.real > 0) + (x.imag > 0)
-
-
-if __name__ == "__main__":
-    miso_params = MisoParams()
-    filter = S.SqrtRaisedCosFilter(
-        fsymb=miso_params.fsymb,
-        fsamp=miso_params.fsamp,
-        rolloff=miso_params.rolloff,
-    )
-
-    ps = PureSender(
-        "./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv"
-    )
-    channel = MISOChannel(
-        amps=[np.exp(-0.7j), 1],
-        # amps = [1, 1],
-        offsets=[0, 0],
-        freq_offs=[0.011 * miso_params.bandwidth, 0.019 * miso_params.bandwidth],
-        # freq_offs = [0, 0],
-        dummy_len=ps.dummy_len,
-        fsamp=miso_params.fsamp,
-    )
-
-    sig_pure = channel.combine([ps.sig_1, ps.sig_2], True)
-    fc = 300e6
-    sig_pure *= np.exp(2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
-
-    gt = to_digits(filter.filter(ps.sig_1[2 * ps.dummy_len :])[:: miso_params.sps])
-
-    receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
-    res = {}
-    for _ in range(N_MC):
-        for snr in [5, 10, 20, 30, 50, 100, 200]:
-            # sig = S.awgn(sig_pure, snr=snr)
-            sig = canonical_awgn(sig_pure, ps.dummy_len, snr=100)
-            receiver.receive(sig, fc)
-            data = receiver.data
-            if data is None:
-                continue
-
-            h = data / filter.filter(ps.sig_1[2 * ps.dummy_len :])[:: miso_params.sps]
-
-            # data_ideal = data / h
-            data_est = data * receiver.h.conj()
-            # data_est = data / h
-            data_est = data_est / np.abs(data_est)
-
-            # ideal = to_digits(data_ideal)
-            est = to_digits(data_est)
-            # print("ideal SER:", (ideal != gt).sum() / len(ideal))
-            ser = (est != gt).sum() / len(est)
-            if res.get(snr) is None:
-                res[snr] = []
-            res[snr].append(ser)
-
-    for k, v in res.items():
-        print("res:", k, np.array(v).mean())

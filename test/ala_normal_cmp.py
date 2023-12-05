@@ -54,7 +54,7 @@ if __name__ == "__main__":
     for snr in np.arange(0, 11, 1):
         for m in np.arange(N_MC):
             receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
-            sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=0)
+            sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=snr)
             sig_bb = sig * np.exp(
                 -2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp
             )

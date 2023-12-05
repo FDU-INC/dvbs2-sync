@@ -1,7 +1,9 @@
 import numpy as np
 import lib.signals as S
 import lib.dvbs2.physical as phy
-from lib.dvbs2.physical import PL_HEADER_LEN, PILOT_LEN, PILOT_SLOT_GAP, SLOT_LEN
+from lib.dvbs2.physical import (
+    PL_HEADER_LEN, PILOT_LEN, PILOT_SLOT_GAP, SLOT_LEN,
+)
 import params
 
 # rxParams = params.RxParams()
