@@ -12,7 +12,7 @@ import numpy as np
 
 N_MC = 10
 
-if __name__ == "__main__":
+def main():
     miso_params = MisoParams()
     filter = S.SqrtRaisedCosFilter(
         fsymb=miso_params.fsymb,
@@ -49,8 +49,6 @@ if __name__ == "__main__":
             if data is None:
                 continue
 
-            h = data / filter.filter(ps.sig_1[2 * ps.dummy_len :])[:: miso_params.sps]
-
             data_est = data * receiver.h.conj()
             data_est = data_est / np.abs(data_est)
 
@@ -62,3 +60,6 @@ if __name__ == "__main__":
 
     for k, v in res.items():
         print("res:", k, np.array(v).mean())
+
+if __name__ == "__main__":
+    main()

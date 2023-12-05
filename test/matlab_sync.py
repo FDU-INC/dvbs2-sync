@@ -4,7 +4,7 @@ from synchronize import Synchronizer
 
 import numpy as np
 
-if __name__ == "__main__":
+def main():
     signal = S.load_matlab("./data/scrambleDvbs2x2pktsQPSK.csv")
     print(len(signal))
     signal = np.tile(signal, 26)
@@ -23,3 +23,6 @@ if __name__ == "__main__":
         print("frameCount:", syncer.rxParams.frameCount)
         plt.plot(out.real, out.imag, ".")
         plt.show()
+
+if __name__ == "__main__":
+    main()

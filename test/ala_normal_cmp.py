@@ -18,8 +18,7 @@ def to_digits(x: CNDarray):
     bits[1::2] = 1 * (x.imag > 0)
     return bits
 
-
-if __name__ == "__main__":
+def main():
     miso_params = MisoParams()
     filter = S.SqrtRaisedCosFilter(
         fsymb=miso_params.fsymb,
@@ -55,9 +54,6 @@ if __name__ == "__main__":
         for m in np.arange(N_MC):
             receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
             sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=snr)
-            sig_bb = sig * np.exp(
-                -2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp
-            )
             receiver.receive(sig, fc)
             data_est = receiver.compensate_alamouti()
 
@@ -101,3 +97,6 @@ if __name__ == "__main__":
     plt.yscale("log")
     plt.legend()
     plt.show()
+
+if __name__ == "__main__":
+    main()
