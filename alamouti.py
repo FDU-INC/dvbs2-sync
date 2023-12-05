@@ -11,11 +11,13 @@ import lib.signals as S
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
 N_MC = 30
 
+
 def to_digits(x: CNDarray):
     bits = np.zeros(2 * len(x), dtype=int)
     bits[0::2] = 1 * (x.real > 0)
     bits[1::2] = 1 * (x.imag > 0)
     return bits
+
 
 if __name__ == "__main__":
     miso_params = MisoParams()
@@ -25,16 +27,22 @@ if __name__ == "__main__":
         rolloff=miso_params.rolloff,
     )
 
-    ala_sender = AlamoutiSender("./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv", filter)
-    ps = PureSender("./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv")
+    ala_sender = AlamoutiSender(
+        "./data/scrambleDvbs2x2pktsDummy.csv",
+        "./data/scrambleDvbs2x2pktsQPSK.csv",
+        filter,
+    )
+    ps = PureSender(
+        "./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv"
+    )
     channel = MISOChannel(
-        amps = [np.exp(-0.7j), 1],
+        amps=[np.exp(-0.7j), 1],
         # amps = [1, 1],
-        offsets = [0, 0],
-        freq_offs = [0.011 * miso_params.bandwidth, 0.019 * miso_params.bandwidth],
+        offsets=[0, 0],
+        freq_offs=[0.011 * miso_params.bandwidth, 0.019 * miso_params.bandwidth],
         # freq_offs = [0, 0],
         dummy_len=ala_sender.dummy_len,
-        fsamp=miso_params.fsamp
+        fsamp=miso_params.fsamp,
     )
 
     sig_pure = channel.combine([ala_sender.sig_1, ala_sender.sig_2], True)
@@ -46,8 +54,10 @@ if __name__ == "__main__":
     for snr in np.arange(0, 11, 1):
         for m in np.arange(N_MC):
             receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
-            sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=snr)
-            sig_bb = sig * np.exp(-2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
+            sig = canonical_awgn(sig_pure, ala_sender.dummy_len, snr=0)
+            sig_bb = sig * np.exp(
+                -2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp
+            )
             receiver.receive(sig, fc)
             data_est = receiver.compensate_alamouti()
 
@@ -55,7 +65,9 @@ if __name__ == "__main__":
                 print("demod error")
                 continue
 
-            gt_symbs = filter.filter(ps.sig_2)[2 * ala_sender.dummy_len::miso_params.sps]
+            gt_symbs = filter.filter(ps.sig_2)[
+                2 * ala_sender.dummy_len :: miso_params.sps
+            ]
             gt = to_digits(gt_symbs)
             pred = to_digits(data_est)
             error_bits = (gt != pred).sum()
@@ -63,19 +75,19 @@ if __name__ == "__main__":
         print("BER:")
         print(bers)
 
-    plt.plot(np.arange(0, 11, 1), bers, label="alamouti")
-
     bers = np.zeros((11))
     for snr in np.arange(0, 11, 1):
         for m in np.arange(N_MC):
             sig = S.awgn(ps.sig_2, snr=snr)
-            data_est = filter.filter(sig)[2 * ala_sender.dummy_len::miso_params.sps]
+            data_est = filter.filter(sig)[2 * ala_sender.dummy_len :: miso_params.sps]
 
             if data_est is None:
                 print("demod error")
                 continue
 
-            gt_symbs = filter.filter(ps.sig_2)[2 * ala_sender.dummy_len::miso_params.sps]
+            gt_symbs = filter.filter(ps.sig_2)[
+                2 * ala_sender.dummy_len :: miso_params.sps
+            ]
             gt = to_digits(gt_symbs[:-1000])
             pred = to_digits(data_est[:-1000])
             error_bits = (gt != pred).sum()

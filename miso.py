@@ -5,6 +5,7 @@ from params import MisoParams
 import logging
 import numpy as np
 from typing import Optional
+
 # import matplotlib.pyplot as plt
 
 CNDarray = np.ndarray[int, np.dtype[np.cdouble]]
@@ -18,16 +19,22 @@ INVALID_LEN = 5
 class PureSender(MisoParams):
     def __init__(self, dummy_path: str, data_path: str):
         super().__init__()
-        self.dummy = S.load_matlab(dummy_path)[INVALID_LEN*self.sps:]
+        self.dummy = S.load_matlab(dummy_path)[INVALID_LEN * self.sps :]
         self.dummy_len = len(self.dummy)
-        self.data = S.load_matlab(data_path)[INVALID_LEN*self.sps:][:self.data_symb_len * self.sps]
-        self.sig_1 = np.zeros((2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble)
-        self.sig_2 = np.zeros((2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble)
+        self.data = S.load_matlab(data_path)[INVALID_LEN * self.sps :][
+            : self.data_symb_len * self.sps
+        ]
+        self.sig_1 = np.zeros(
+            (2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble
+        )
+        self.sig_2 = np.zeros(
+            (2 * self.dummy_len + self.data_symb_len * self.sps), dtype=np.cdouble
+        )
 
-        self.sig_1[:self.dummy_len] = self.dummy
-        self.sig_1[-self.data_symb_len * self.sps:] = self.data
-        self.sig_2[self.dummy_len: 2 * self.dummy_len] = self.dummy
-        self.sig_2[-self.data_symb_len * self.sps:] = self.data
+        self.sig_1[: self.dummy_len] = self.dummy
+        self.sig_1[-self.data_symb_len * self.sps :] = self.data
+        self.sig_2[self.dummy_len : 2 * self.dummy_len] = self.dummy
+        self.sig_2[-self.data_symb_len * self.sps :] = self.data
 
 
 class AlamoutiSender(PureSender):
@@ -35,7 +42,7 @@ class AlamoutiSender(PureSender):
         super().__init__(dummy_path, data_path)
         self.filter = filter
         assert self.sps == int(filter.fsamp / filter.fsymb)
-        data_symb = self.filter.filter(self.data)[::self.sps]
+        data_symb = self.filter.filter(self.data)[:: self.sps]
         parity = len(data_symb) % 2
         if parity == 1:
             # repeat the last symbol
@@ -48,7 +55,7 @@ class AlamoutiSender(PureSender):
             data_symb1 = data_symb1[:-1]
         sig_data_1 = self.filter.pulse_shape(data_symb1, 0.0)
 
-        self.sig_1[-self.data_symb_len * self.sps:] = sig_data_1
+        self.sig_1[-self.data_symb_len * self.sps :] = sig_data_1
 
         data_symb2 = np.zeros_like(data_symb, dtype=np.cdouble)
         data_symb2[0::2] = data_symb[1::2]
@@ -56,11 +63,18 @@ class AlamoutiSender(PureSender):
         if parity == 1:
             data_symb2 = data_symb2[:-1]
         sig_data_2 = self.filter.pulse_shape(data_symb2, 0.0)
-        self.sig_2[-self.data_symb_len * self.sps:] = sig_data_2
+        self.sig_2[-self.data_symb_len * self.sps :] = sig_data_2
 
 
-class MISOChannel():
-    def __init__(self, amps: list[complex], offsets: list[int], freq_offs: list[float], dummy_len: int, fsamp: float) -> None:
+class MISOChannel:
+    def __init__(
+        self,
+        amps: list[complex],
+        offsets: list[int],
+        freq_offs: list[float],
+        dummy_len: int,
+        fsamp: float,
+    ) -> None:
         assert len(amps) == 2 and len(offsets) == 2 and len(freq_offs) == 2
         self.n_sig = 2
         self.amps = amps
@@ -82,16 +96,25 @@ class MISOChannel():
 
         out1 = self.amps[0] * sig[0]
         if is_freq_off:
-            out1 *= np.exp(2j * np.pi * np.arange(sig_len) * self.freq_offs[0] / self.fsamp)
-        output[self.offsets[0]: self.offsets[0] + sig_len] += out1
+            out1 *= np.exp(
+                2j * np.pi * np.arange(sig_len) * self.freq_offs[0] / self.fsamp
+            )
+        output[self.offsets[0] : self.offsets[0] + sig_len] += out1
 
         out2 = self.amps[1] * sig[1]
         if is_freq_off:
-            out2[self.dummy_len:] *= np.exp(2j * np.pi * np.arange(sig_len - self.dummy_len) * self.freq_offs[1] / self.fsamp)
-        output[self.offsets[1]: self.offsets[1] + sig_len] += out2
+            out2[self.dummy_len :] *= np.exp(
+                2j
+                * np.pi
+                * np.arange(sig_len - self.dummy_len)
+                * self.freq_offs[1]
+                / self.fsamp
+            )
+        output[self.offsets[1] : self.offsets[1] + sig_len] += out2
 
         output = output[:sig_len]
         return output
+
 
 class Receiver(MisoParams):
     def __init__(self, dummy_path: str) -> None:
@@ -104,8 +127,8 @@ class Receiver(MisoParams):
         self.__noise_sniffed: bool = False
         self.sig: Optional[CNDarray] = None
         self.dummy: CNDarray = S.load_matlab(dummy_path)
-        self.dummy = self.filter.filter(self.dummy)[INVALID_LEN*self.sps:]
-        self.dummy /= np.mean(np.abs(self.dummy[::self.sps]))
+        self.dummy = self.filter.filter(self.dummy)[INVALID_LEN * self.sps :]
+        self.dummy /= np.mean(np.abs(self.dummy[:: self.sps]))
         self.dummy_len: int = len(self.dummy)
         self.dummy_symb_len: int = int(self.dummy_len / self.sps)
 
@@ -116,7 +139,7 @@ class Receiver(MisoParams):
         self.delta_t = 0
 
     def sniff_noise(self, noise_sig: CNDarray) -> None:
-        self.n_power = np.mean(np.abs(noise_sig[:self.dummy_len] ** 2))
+        self.n_power = np.mean(np.abs(noise_sig[: self.dummy_len] ** 2))
         self.__noise_sniffed = True
 
     def receive(self, sig: CNDarray, fc: float) -> None:
@@ -133,7 +156,9 @@ class Receiver(MisoParams):
         sig_bb *= np.exp(-2j * np.pi * np.arange(len(sig_bb)) * fc / self.fsamp)
         sig_filtered = self.filter.filter(sig_bb)
         id = self.__find_dummy(sig_filtered)
-        id2 = self.__find_dummy(sig_filtered[id + self.sps * (self.dummy_symb_len - 1):])
+        id2 = self.__find_dummy(
+            sig_filtered[id + self.sps * (self.dummy_symb_len - 1) :]
+        )
         self.delta_t = id2 - self.sps
         if abs(id2 - self.sps) > self.sps / 4:
             logging.warning("offset greater than T_s / 4, refuse to accept")
@@ -192,12 +217,12 @@ class Receiver(MisoParams):
 
             pos = phy.PL_HEADER_LEN
             for i in range(data_len // step):
-                h1[pos: pos + step] *= self.phase_error[i, 0]
-                h2[pos: pos + step] *= self.phase_error[i, 1]
+                h1[pos : pos + step] *= self.phase_error[i, 0]
+                h2[pos : pos + step] *= self.phase_error[i, 1]
                 pos += step
 
-            h1[pos: pos + step] *= self.phase_error[-1, 0]
-            h2[pos: pos + step] *= self.phase_error[-1, 1]
+            h1[pos : pos + step] *= self.phase_error[-1, 0]
+            h2[pos : pos + step] *= self.phase_error[-1, 1]
 
         n_pairs = int(len(h1) / 2)
         H = np.zeros((n_pairs, 2, 2), dtype=np.cdouble)
@@ -215,13 +240,21 @@ class Receiver(MisoParams):
             n_pilots = self.n_pilots
             self.pilot_indices = phy.get_pilot_indices(n_pilots)
             self.pilots_ref = phy.get_pilot_seq(n_pilots, scramb_id=0)
-            self.pilots_ref = self.pilots_ref.reshape((n_pilots, int(phy.PILOT_LEN / 2), 2))
+            self.pilots_ref = self.pilots_ref.reshape(
+                (n_pilots, int(phy.PILOT_LEN / 2), 2)
+            )
 
-        y_pilots: CNDarray = self.data[self.pilot_indices].reshape(self.pilots_ref.shape)
+        y_pilots: CNDarray = self.data[self.pilot_indices].reshape(
+            self.pilots_ref.shape
+        )
         y_pilots = y_pilots[..., np.newaxis]
 
-        h1_pilots: CNDarray = self.h1t[self.pilot_indices].reshape(self.pilots_ref.shape)
-        h2_pilots: CNDarray = self.h2t[self.pilot_indices].reshape(self.pilots_ref.shape)
+        h1_pilots: CNDarray = self.h1t[self.pilot_indices].reshape(
+            self.pilots_ref.shape
+        )
+        h2_pilots: CNDarray = self.h2t[self.pilot_indices].reshape(
+            self.pilots_ref.shape
+        )
 
         H_pilots = np.zeros((*self.pilots_ref.shape, 2), dtype=np.cdouble)
         H_pilots[..., 0, 0] = self.pilots_ref[..., 0] * h1_pilots[..., 0]
@@ -246,7 +279,7 @@ class Receiver(MisoParams):
             return None
 
         # use energy window to coarsely find start
-        buffer = self.sig[:self.dummy_len]
+        buffer = self.sig[: self.dummy_len]
         power = np.mean(np.abs(buffer) ** 2)
         for i in range(len(self.sig) - self.dummy_len):
             if power > 2 * self.n_power:
@@ -264,13 +297,17 @@ class Receiver(MisoParams):
         """
         c_min = np.inf
         id_max = 0
-        ref_diff = self.dummy[::self.sps][1:] / self.dummy[::self.sps][:-1]
+        ref_diff = self.dummy[:: self.sps][1:] / self.dummy[:: self.sps][:-1]
         ref_diff = ref_diff[1:] / ref_diff[:-1]
         for i in range(self.sps):
-            id = phy.find_header_v2(sig_filtered[i:i + 1 * self.dummy_len:self.sps].reshape(-1, 1))
+            id = phy.find_header_v2(
+                sig_filtered[i : i + 1 * self.dummy_len : self.sps].reshape(-1, 1)
+            )
 
             id = id[0]
-            symbs = sig_filtered[id * self.sps + i: id * self.sps + i + self.dummy_len : self.sps]
+            symbs = sig_filtered[
+                id * self.sps + i : id * self.sps + i + self.dummy_len : self.sps
+            ]
             diff = symbs[1:] / symbs[:-1]
             diff = diff[1:] / diff[:-1]
 
@@ -288,10 +325,16 @@ class Receiver(MisoParams):
         calculate the cfo, phase error, amplitude, then get the equivalent h on
         data frame
         """
-        dummy1 = sig_filtered[id: id + self.dummy_len: self.sps]
-        dummy1 *= self.dummy[::self.sps].conj()
-        dummy2 = sig_filtered[id + self.dummy_len + self.delta_t : id + 2 * self.dummy_len + self.delta_t : self.sps]
-        dummy2 *= self.dummy[::self.sps].conj()
+        dummy1 = sig_filtered[id : id + self.dummy_len : self.sps]
+        dummy1 *= self.dummy[:: self.sps].conj()
+        dummy2 = sig_filtered[
+            id
+            + self.dummy_len
+            + self.delta_t : id
+            + 2 * self.dummy_len
+            + self.delta_t : self.sps
+        ]
+        dummy2 *= self.dummy[:: self.sps].conj()
 
         cfo1 = self.__cfo(dummy1)
         cfo2 = self.__cfo(dummy2)
@@ -305,7 +348,7 @@ class Receiver(MisoParams):
         print("(h1, h2):", h1, h2)
         print("(phase):", np.angle(h1), np.angle(h2))
 
-        data = sig_filtered[id + 2 * self.dummy_len::self.sps][:self.data_symb_len]
+        data = sig_filtered[id + 2 * self.dummy_len :: self.sps][: self.data_symb_len]
         self.data = data * 1.0
 
         carrier = 2j * np.pi * np.arange(len(data)) / self.fsymb
@@ -334,7 +377,7 @@ class Receiver(MisoParams):
 
 
 def canonical_awgn(pure: CNDarray, dummy_len: int, snr: float) -> CNDarray:
-    sig_dummy = pure[:2 * dummy_len]
+    sig_dummy = pure[: 2 * dummy_len]
     noise_scale = S.awgn_scale(sig_dummy, snr)
 
     sz = len(pure)
@@ -360,22 +403,24 @@ if __name__ == "__main__":
         rolloff=miso_params.rolloff,
     )
 
-    ps = PureSender("./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv")
+    ps = PureSender(
+        "./data/scrambleDvbs2x2pktsDummy.csv", "./data/scrambleDvbs2x2pktsQPSK.csv"
+    )
     channel = MISOChannel(
-        amps = [np.exp(-0.7j), 1],
+        amps=[np.exp(-0.7j), 1],
         # amps = [1, 1],
-        offsets = [0, 0],
-        freq_offs = [0.011 * miso_params.bandwidth, 0.019 * miso_params.bandwidth],
+        offsets=[0, 0],
+        freq_offs=[0.011 * miso_params.bandwidth, 0.019 * miso_params.bandwidth],
         # freq_offs = [0, 0],
         dummy_len=ps.dummy_len,
-        fsamp=miso_params.fsamp
+        fsamp=miso_params.fsamp,
     )
 
     sig_pure = channel.combine([ps.sig_1, ps.sig_2], True)
     fc = 300e6
     sig_pure *= np.exp(2j * np.pi * np.arange(len(sig_pure)) * fc / miso_params.fsamp)
 
-    gt = to_digits(filter.filter(ps.sig_1[2 * ps.dummy_len:])[::miso_params.sps])
+    gt = to_digits(filter.filter(ps.sig_1[2 * ps.dummy_len :])[:: miso_params.sps])
 
     receiver = Receiver(dummy_path="./data/scrambleDvbs2x2pktsDummy.csv")
     res = {}
@@ -388,15 +433,13 @@ if __name__ == "__main__":
             if data is None:
                 continue
 
-            h = data / filter.filter(ps.sig_1[2 * ps.dummy_len:])[::miso_params.sps]
+            h = data / filter.filter(ps.sig_1[2 * ps.dummy_len :])[:: miso_params.sps]
 
             # data_ideal = data / h
             data_est = data * receiver.h.conj()
             # data_est = data / h
             data_est = data_est / np.abs(data_est)
-            plt.plot(data_est.real, data_est.imag, ".")
-            plt.show()
-            
+
             # ideal = to_digits(data_ideal)
             est = to_digits(data_est)
             # print("ideal SER:", (ideal != gt).sum() / len(ideal))
